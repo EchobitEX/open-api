@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Debug Tool</title>
+    <style>
+        :root {
+            --bg-color: #f4f6f8;
+            --card-bg: #ffffff;
+            --border-color: #ddd;
+            --text-color: #333;
+            --accent-color: #007bff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .container {
+            max-width: 1300px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 480px 1fr;
+            gap: 20px;
+            height: 95vh;
+        }
+
+        /* Control Panel (Left) */
+        .panel {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+        }
+
+        h2, h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+            border-bottom: 2px solid var(--bg-color);
+            padding-bottom: 8px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .form-inline {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 10px;
+        }
+        .form-inline label {
+            width: 140px;
+            flex-shrink: 0;
+            margin: 0;
+        }
+        .form-inline input[type="text"], .form-inline select {
+            flex: 1;
+        }
+
+        label {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        input[type="text"], textarea {
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 150px;
+        }
+
+        button {
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .btn-primary { background-color: var(--accent-color); color: white; }
+        .btn-primary:hover { background-color: #0056b3; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn-danger:hover { background-color: #a71d2a; }
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-secondary { background-color: #6c757d; color: white; }
+
+        .status-bar {
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #ccc;
+            margin-right: 5px;
+        }
+        .status-indicator.connected { background-color: #28a745; }
+        .status-indicator.error { background-color: #dc3545; }
+
+        /* Message Display Area (Right) */
+        .display-area {
+            background: var(--bg-color); /* Transparent relative to panel */
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+        }
+
+        .topic-card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            height: 300px; /* Fixed height per topic box */
+            resize: vertical;
+            overflow: hidden;
+        }
+
+        .topic-header {
+            padding: 10px 15px;
+            background: #f8f9fa;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+        }
+
+        .topic-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+
+        .log-entry {
+            display: flex;
+            margin-bottom: 4px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 4px;
+        }
+        
+        .log-time {
+            flex-shrink: 0;
+            color: #569cd6;
+            margin-right: 5px;
+        }
+
+        .log-data {
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #ce9178;
+            cursor: pointer;
+        }
+
+        .log-data.expanded {
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .clear-btn {
+            font-size: 0.8rem;
+            padding: 2px 8px;
+            background: transparent;
+            color: #666;
+            border: 1px solid #ccc;
+        }
+        
+        #ping-log {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+            width: min(900px, 90vw);
+            max-height: 75vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-weight: bold;
+            font-size: 1rem;
+        }
+
+        .modal-tools {
+            display: flex;
+            gap: 8px;
+        }
+
+        .modal-content {
+            padding: 12px 16px;
+            overflow: auto;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+
+        .modal-content pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        .hidden { display: none; }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Left Panel: Controls -->
+    <div class="panel">
+        <h2>Configuration</h2>
+        <div class="form-group form-inline">
+            <label>API Key</label>
+            <input type="text" id="configApiKey" placeholder="Enter your API Key">
+        </div>
+        <div class="form-group form-inline">
+            <label>Secret Key</label>
+            <input type="text" id="configSecretKey" placeholder="Enter your Secret Key">
+        </div>
+
+        <h2>Connection</h2>
+        <div class="form-group form-inline">
+            <label>WebSocket URL</label>
+            <select id="wsUrl" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                <option value="wss://uapi.echobit.com/uapi/exchange/ws">wss://uapi.echobit.com/uapi/exchange/ws</option>
+                <option value="wss://uapi.echobit.com/uapi/ws/inform">wss://uapi.echobit.com/uapi/ws/inform</option>
+                <option value="wss://uapi.echobit.com/uapi/ws/information">wss://uapi.echobit.com/uapi/ws/information</option>
+            </select>
+        </div>
+
+        <!-- Auth Parameters (Hidden by default, shown for specific paths) -->
+        <div id="authParams" style="display:none; background: #f8f9fa; padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); margin-bottom: 15px; font-size: 0.9rem;">
+            <h3 style="margin-top: 0; font-size: 1rem; border-bottom: none;">Auth Parameters</h3>
+            <div class="form-group">
+                <label>API Key (Auto-filled)</label>
+                <div style="display:flex; gap:5px;">
+                    <select id="authKeyType" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; width: 120px;">
+                        <option value="query" selected>Query Param</option>
+                        <option value="cookie">Cookie</option>
+                        <option value="header">Header</option>
+                    </select>
+                    <input type="text" id="authApiKey" placeholder="Configured above" style="flex:1;" disabled>
+                </div>
+                <div id="authKeyHint" style="font-size: 0.75rem; color: #666; margin-top: 2px;">Name: X-EC-APIKEY (URL Query Parameter)</div>
+                <div id="cookieWarning" style="display:none; font-size: 0.75rem; color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 4px; border-radius: 2px; margin-top: 5px;">
+                    ⚠️ Domain Mismatch: Cookies set here won't be sent to the WebSocket server!
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Timestamp (Query)</label>
+                <div style="display:flex; gap:5px;">
+                    <input type="text" id="authTimestamp" placeholder="Timestamp (ms)">
+                    <button id="btnRefreshTs" class="btn-secondary" style="padding: 2px 10px; font-size: 0.8rem;">Refresh</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Signature (Auto-generated)</label>
+                <input type="text" id="authSignature" placeholder="Generated from timestamp + secret" disabled>
+            </div>
+        </div>
+
+        <div class="form-group" style="flex-direction: row; gap: 10px;">
+            <button id="btnConnect" class="btn-primary" style="flex:1">Connect</button>
+            <button id="btnDisconnect" class="btn-danger" style="flex:1" disabled>Disconnect</button>
+        </div>
+        
+        <div class="status-bar">
+            <div><span id="statusDot" class="status-indicator"></span><span id="statusText">Disconnected</span></div>
+        </div>
+        <div class="form-group form-inline">
+            <label>Ping Interval</label>
+            <select id="pingIntervalSelect" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                <option value="5000">5s</option>
+                <option value="10000" selected>10s</option>
+                <option value="15000">15s</option>
+                <option value="25000">25s</option>
+            </select>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between;">
+                <span>Current Time:</span>
+                <span id="currentTime" style="font-family: monospace; font-weight: bold;">--</span>
+            </div>
+            <div id="ping-log" style="margin-top: 4px; border-top: 1px solid #ddd; padding-top: 4px; color: #666;">Last Pong: --</div>
+        </div>
+
+        <h3>Subscription</h3>
+        <div class="form-group">
+            <label>Template</label>
+            <select id="templateSelect" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+                <option value="">-- Select a template --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Message (JSON)</label>
+            <textarea id="subMessage">
+{
+  "id": "kline_ETHUSDT1m",
+  "topic": "kline_1m",
+  "event": "sub",
+  "symbol": "ETHUSDT",
+  "params": {
+    "klineType": "1m",
+    "realtimeInterval": "24h",
+    "limit": 1
+  }
+}</textarea>
+        </div>
+        <button id="btnSend" class="btn-success" disabled>Send Subscription</button>
+        
+        <div style="margin-top: auto;">
+            <button onclick="clearAll()" class="btn-secondary" style="width: 100%">Clear All Messages</button>
+        </div>
+    </div>
+
+    <!-- Right Panel: Messages by Topic -->
+    <div class="display-area" id="messageContainer">
+        <!-- Topic cards will be injected here -->
+        <div class="topic-card" id="card-system">
+            <div class="topic-header">
+                <span>System / General</span>
+                <button class="clear-btn" onclick="clearTopic('system')">Clear</button>
+            </div>
+            <div class="topic-content" id="logs-system"></div>
+        </div>
+    </div>
+</div>
+
+<div id="modalOverlay" class="modal-overlay" aria-hidden="true">
+    <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-header">
+            <div class="modal-title" id="modalTitle">Details</div>
+            <div class="modal-tools">
+                <button id="btnToggleView" class="btn-secondary">Raw View</button>
+                <button id="btnCopy" class="btn-secondary">Copy</button>
+                <button id="btnClose" class="btn-danger">Close</button>
+            </div>
+        </div>
+        <div class="status-bar" style="border: none; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color);">
+            <div>Topic: <span id="modalTopic" style="font-family: monospace;"></span></div>
+            <div>Time: <span id="modalTime" style="font-family: monospace;"></span></div>
+        </div>
+        <div class="modal-content">
+            <pre id="modalContent"></pre>
+        </div>
+    </div>
+    </div>
+
+<script>
+    let ws = null;
+
+    // DOM Elements
+    const elUrl = document.getElementById('wsUrl');
+    const elConnect = document.getElementById('btnConnect');
+    const elDisconnect = document.getElementById('btnDisconnect');
+    const elStatusText = document.getElementById('statusText');
+    const elStatusDot = document.getElementById('statusDot');
+    const elSubMsg = document.getElementById('subMessage');
+    const elSend = document.getElementById('btnSend');
+    const elContainer = document.getElementById('messageContainer');
+    const elPingLog = document.getElementById('ping-log');
+    const elTemplateSelect = document.getElementById('templateSelect');
+    const elCurrentTime = document.getElementById('currentTime');
+    const elAuthParams = document.getElementById('authParams');
+    const elAuthKeyType = document.getElementById('authKeyType');
+    const elAuthApiKey = document.getElementById('authApiKey');
+    const elAuthKeyHint = document.getElementById('authKeyHint');
+    const elCookieWarning = document.getElementById('cookieWarning');
+    const elAuthTimestamp = document.getElementById('authTimestamp');
+    const elAuthSignature = document.getElementById('authSignature');
+    const elModalOverlay = document.getElementById('modalOverlay');
+    const elModalTitle = document.getElementById('modalTitle');
+    const elModalTopic = document.getElementById('modalTopic');
+    const elModalTime = document.getElementById('modalTime');
+    const elModalContent = document.getElementById('modalContent');
+    const elBtnToggleView = document.getElementById('btnToggleView');
+    const elBtnCopy = document.getElementById('btnCopy');
+    const elBtnClose = document.getElementById('btnClose');
+    const elPingIntervalSelect = document.getElementById('pingIntervalSelect');
+
+    let modalState = { raw: '', pretty: '', view: 'pretty', escHandler: null };
+    let pingTimer = null;
+
+    function startActivePing() {
+        stopActivePing();
+        const ms = parseInt(elPingIntervalSelect.value, 10) || 10000;
+        pingTimer = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const t = Date.now();
+                ws.send(JSON.stringify({ ping: t }));
+            }
+        }, ms);
+    }
+
+    function stopActivePing() {
+        if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+    }
+
+    function openDetailModal({ topic, time, raw }) {
+        elModalTopic.textContent = topic;
+        elModalTime.textContent = time;
+        modalState.raw = raw;
+        try {
+            const obj = JSON.parse(raw);
+            modalState.pretty = JSON.stringify(obj, null, 2);
+            modalState.view = 'pretty';
+            elBtnToggleView.disabled = false;
+            elBtnToggleView.textContent = 'Raw View';
+            elModalContent.textContent = modalState.pretty;
+        } catch (e) {
+            modalState.pretty = '';
+            modalState.view = 'raw';
+            elBtnToggleView.disabled = true;
+            elBtnToggleView.textContent = 'Raw View';
+            elModalContent.textContent = modalState.raw;
+        }
+        elModalOverlay.style.display = 'flex';
+        elModalOverlay.setAttribute('aria-hidden', 'false');
+        modalState.escHandler = function(ev) { if (ev.key === 'Escape') { closeDetailModal(); } };
+        window.addEventListener('keydown', modalState.escHandler);
+        elBtnClose.focus();
+    }
+
+    function closeDetailModal() {
+        elModalOverlay.style.display = 'none';
+        elModalOverlay.setAttribute('aria-hidden', 'true');
+        if (modalState.escHandler) { window.removeEventListener('keydown', modalState.escHandler); modalState.escHandler = null; }
+    }
+
+    elBtnToggleView.onclick = function() {
+        if (elBtnToggleView.disabled) return;
+        if (modalState.view === 'pretty') {
+            modalState.view = 'raw';
+            elBtnToggleView.textContent = 'Formatted View';
+            elModalContent.textContent = modalState.raw;
+        } else {
+            modalState.view = 'pretty';
+            elBtnToggleView.textContent = 'Raw View';
+            elModalContent.textContent = modalState.pretty || modalState.raw;
+        }
+    };
+
+    elBtnCopy.onclick = function() {
+        const text = modalState.view === 'pretty' && modalState.pretty ? modalState.pretty : modalState.raw;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text);
+        }
+    };
+
+    elBtnClose.onclick = function() { closeDetailModal(); };
+    elModalOverlay.onclick = function(e) { if (e.target === elModalOverlay) closeDetailModal(); };
+    
+    // Check Domain Match
+    function checkDomainMismatch() {
+        const type = elAuthKeyType.value;
+        if (type !== 'cookie') {
+            elCookieWarning.style.display = 'none';
+            return;
+        }
+
+        const url = elUrl.value.trim();
+        if (!url) return;
+
+        try {
+            const wsUrlObj = new URL(url.includes('://') ? url : 'ws://' + url);
+            const currentHost = window.location.hostname;
+            const wsHost = wsUrlObj.hostname;
+            
+            // Allow localhost <-> 127.0.0.1 equivalence
+            const isLocal = (h) => h === 'localhost' || h === '127.0.0.1';
+            const match = currentHost === wsHost || (isLocal(currentHost) && isLocal(wsHost));
+
+            if (!match) {
+                elCookieWarning.style.display = 'block';
+                elCookieWarning.innerText = `⚠️ Domain Mismatch: Page is on "${currentHost}", but WS is "${wsHost}". Cookies won't be sent!`;
+            } else {
+                elCookieWarning.style.display = 'none';
+            }
+        } catch (e) {
+            // Invalid URL, ignore
+            elCookieWarning.style.display = 'none';
+        }
+    }
+
+    // Auth Type Change Handler
+    elAuthKeyType.addEventListener('change', () => {
+        const type = elAuthKeyType.value;
+        checkDomainMismatch(); // Check on type change
+        
+        if (type === 'query') {
+            elAuthKeyHint.innerText = 'Name: X-EC-APIKEY (URL Query Parameter)';
+        } else if (type === 'header') {
+            elAuthKeyHint.innerText = 'Name: X-EC-APIKEY (Not supported in standard browser WebSocket)';
+            elAuthKeyHint.style.color = '#dc3545';
+        } else {
+            elAuthKeyHint.innerText = 'Name: X-EC-APIKEY (Cookie)';
+            elAuthKeyHint.style.color = '#666';
+        }
+    });
+    
+
+
+    // --- Time Update Loop ---
+    setInterval(() => {
+        const now = new Date();
+        elCurrentTime.innerText = now.toLocaleTimeString();
+    }, 1000);
+
+    const elConfigApiKey = document.getElementById('configApiKey');
+    const elConfigSecretKey = document.getElementById('configSecretKey');
+    const elBtnRefreshTs = document.getElementById('btnRefreshTs');
+
+    // --- Crypto Utils for HMAC-SHA256 ---
+    async function hmacSha256(message, secret) {
+        const enc = new TextEncoder();
+        const key = await window.crypto.subtle.importKey(
+            "raw",
+            enc.encode(secret),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"]
+        );
+        const signature = await window.crypto.subtle.sign(
+            "HMAC",
+            key,
+            enc.encode(message)
+        );
+        
+        // Convert buffer to hex string
+        return Array.from(new Uint8Array(signature))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+    }
+
+    // --- Auth Logic ---
+    
+    function updateAuthFields() {
+        // Sync API Key
+        elAuthApiKey.value = elConfigApiKey.value;
+        
+        // Update Signature if TS and Secret present
+        const secret = elConfigSecretKey.value.trim();
+        const ts = elAuthTimestamp.value.trim();
+        
+        if (secret && ts) {
+            // Logic from SignatureHelper.java: sign("timestamp=" + timestamp, secret)
+            const payload = `timestamp=${ts}`;
+            hmacSha256(payload, secret).then(sig => {
+                elAuthSignature.value = sig;
+            }).catch(err => {
+                console.error("Sign error", err);
+                elAuthSignature.value = "Error generating signature";
+            });
+        } else {
+            elAuthSignature.value = "";
+        }
+    }
+
+    // Listeners for auto-update
+    elConfigApiKey.addEventListener('input', updateAuthFields);
+    elConfigSecretKey.addEventListener('input', updateAuthFields);
+    elAuthTimestamp.addEventListener('input', updateAuthFields);
+    elUrl.addEventListener('change', checkDomainMismatch); // Check when URL changes
+    
+    elBtnRefreshTs.addEventListener('click', () => {
+        elAuthTimestamp.value = Date.now();
+        updateAuthFields();
+    });
+
+    // Initialize TS on load
+    elAuthTimestamp.value = Date.now();
+
+    // --- Templates Definition ---
+    const TEMPLATES = {
+        'exchange/ws': [
+            { label: 'Quotes (Market)', value: { "id": "quotesData", "topic": "quotesData", "event": "sub", "params": {} } },
+            { label: 'Depth', value: { "id": "depth.BTCUSDT", "topic": "depth", "event": "sub", "symbol": "BTCUSDT", "params": {} } },
+            { label: 'Klines', value: { "id": "kline_BTCUSDT15m", "topic": "kline_15m", "event": "sub", "symbol": "BTCUSDT", "params": { "klineType": "15m", "realtimeInterval": "24h", "limit": 100 } } },
+            { label: 'Mark Klines', value: { "id": "markKline_BTCUSDT_15m", "topic": "markKline_15m", "event": "sub", "limit": 100, "symbol": "BTCUSDT", "params": {} } },
+            { label: 'Index Klines', value: { "id": "indexKline_BTCUSDT15m", "topic": "indexKline_15m", "event": "sub", "symbol": "BTCUSDT", "params": { "klineType": "15m", "realtimeInterval": "24h", "limit": 100 } } },
+            { label: 'Recent Trades', value: { "id": "trade.BTCUSDT", "topic": "trade", "event": "sub", "symbol": "BTCUSDT", "params": {} } }
+        ],
+        'ws/information': [
+            { label: 'Spot Filled Trades', value: { "id": "coin_history_trade", "topic": "coin_history_trade", "event": "sub", "params": {} } },
+            { label: 'Spot Current Orders', value: { "id": "coin_current_order", "topic": "coin_current_order", "event": "sub", "params": {} } },
+            { label: 'Spot Completed Orders', value: { "id": "coin_order_finish", "topic": "coin_order_finish", "event": "sub", "params": {} } },
+            { label: 'Spot Assets', value: { "id": "coin_property", "topic": "coin_property", "event": "sub", "params": {} } },
+            { label: 'Spot Plan Orders', value: { "id": "coin_plan_order", "topic": "coin_plan_order", "event": "sub", "params": {} } },
+            { label: 'Futures Asset Balance', value: { "id": "contract_property", "topic": "contract_property", "event": "sub", "params": {} } },
+            { label: 'Futures Tradable Info', value: { "id": "contract_can_trade", "topic": "contract_can_trade", "event": "sub", "params": {} } },
+            { label: 'Futures Position', value: { "id": "contract_position", "topic": "contract_position", "event": "sub", "params": {} } },
+            { label: 'Futures Completed Orders', value: { "id": "contract_order_finish", "topic": "contract_order_finish", "event": "sub", "params": {} } },
+            { label: 'Futures Current Orders', value: { "id": "contract_current_order", "topic": "contract_current_order", "event": "sub", "params": {} } }
+        ],
+        'ws/inform': [
+            { label: 'Funding Rates', value: { "id": "fund_rates", "topic": "fund_rates", "event": "sub" } }
+        ]
+    };
+
+    // --- Template Logic ---
+
+    function getAuthProfileForUrl(url) {
+        if (url.includes('/ws/information')) return 'full';
+        if (url.includes('/exchange/ws') || url.includes('/ws/inform')) return 'apiKeyOnly';
+        return 'none';
+    }
+
+    function applyAuthProfile(profile) {
+        const tsGroup = elAuthTimestamp.closest('.form-group');
+        const sigGroup = elAuthSignature.closest('.form-group');
+        if (profile === 'full') {
+            elAuthParams.style.display = 'block';
+            if (tsGroup) tsGroup.style.display = '';
+            if (sigGroup) sigGroup.style.display = '';
+        } else if (profile === 'apiKeyOnly') {
+            elAuthParams.style.display = 'block';
+            if (tsGroup) tsGroup.style.display = 'none';
+            if (sigGroup) sigGroup.style.display = 'none';
+            elAuthTimestamp.value = '';
+            elAuthSignature.value = '';
+        } else {
+            elAuthParams.style.display = 'none';
+            if (tsGroup) tsGroup.style.display = 'none';
+            if (sigGroup) sigGroup.style.display = 'none';
+            elAuthTimestamp.value = '';
+            elAuthSignature.value = '';
+        }
+    }
+
+    function updateTemplateOptions() {
+        const url = elUrl.value.trim();
+        elTemplateSelect.innerHTML = '<option value="">-- Select a template --</option>';
+
+        applyAuthProfile(getAuthProfileForUrl(url));
+
+        let matchFound = false;
+        
+        for (const [key, options] of Object.entries(TEMPLATES)) {
+            if (url.includes(key)) {
+                options.forEach((opt) => {
+                    const option = document.createElement('option');
+                    option.value = JSON.stringify(opt.value, null, 2);
+                    option.text = opt.label;
+                    elTemplateSelect.appendChild(option);
+                });
+                matchFound = true;
+                break; 
+            }
+        }
+        
+        if (!matchFound) {
+            const group = document.createElement('optgroup');
+            group.label = "All Templates";
+            Object.values(TEMPLATES).flat().forEach(opt => {
+                const option = document.createElement('option');
+                option.value = JSON.stringify(opt.value, null, 2);
+                option.text = opt.label;
+                elTemplateSelect.appendChild(option);
+            });
+        }
+    }
+
+    elUrl.addEventListener('change', updateTemplateOptions);
+    // Initialize on load
+    updateTemplateOptions();
+
+    elTemplateSelect.addEventListener('change', () => {
+        const val = elTemplateSelect.value;
+        if (val) {
+            elSubMsg.value = val;
+        }
+    });
+
+    elPingIntervalSelect.addEventListener('change', () => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            startActivePing();
+        }
+    });
+
+
+    // --- Connection Logic ---
+
+    elConnect.addEventListener('click', () => {
+        let url = elUrl.value.trim();
+        if (!url) return alert("Please enter a URL");
+
+        const profile = getAuthProfileForUrl(url);
+        if (profile !== 'none') {
+            const keyType = elAuthKeyType.value;
+            const apiKey = elConfigApiKey.value.trim();
+            const ts = elAuthTimestamp.value.trim();
+            const sig = elAuthSignature.value.trim();
+
+            if (apiKey) {
+                if (keyType === 'cookie') {
+                    document.cookie = `X-EC-APIKEY=${apiKey}; path=/; max-age=3600; SameSite=Lax`;
+                    const wsUrlObj = new URL(url.includes('://') ? url : 'ws://' + url);
+                    const currentHost = window.location.hostname;
+                    const wsHost = wsUrlObj.hostname;
+                    if (currentHost !== wsHost && !((currentHost === 'localhost' && wsHost === '127.0.0.1') || (currentHost === '127.0.0.1' && wsHost === 'localhost'))) {
+                        logMessage('system', `⚠️ WARNING: Cross-Domain Cookie Issue!\nPage Domain: ${currentHost}\nWS Domain: ${wsHost}\nCookies set via JS only apply to ${currentHost}. The browser will NOT send this cookie to ${wsHost}.`);
+                    } else {
+                        logMessage('system', `Cookie set: X-EC-APIKEY=...${apiKey.slice(-4)}`);
+                    }
+                } else if (keyType === 'query') {
+                    url += `${url.includes('?') ? '&' : '?'}X-EC-APIKEY=${apiKey}`;
+                } else if (keyType === 'header') {
+                    logMessage('system', `⚠️ WARNING: Standard browser WebSocket API does not support custom headers (X-EC-APIKEY). This setting may be ignored.`);
+                }
+            }
+
+            if (profile === 'full' && ts && sig) {
+                url += `${url.includes('?') ? '&' : '?'}timestamp=${ts}&signature=${sig}`;
+            }
+        }
+
+        try {
+            ws = new WebSocket(url);
+            updateStatus('connecting');
+
+            ws.onopen = () => {
+                updateStatus('connected');
+                startActivePing();
+            };
+
+            ws.onclose = () => {
+                updateStatus('disconnected');
+                ws = null;
+                stopActivePing();
+            };
+
+            ws.onerror = (err) => {
+                console.error("WS Error", err);
+                updateStatus('error');
+            };
+
+            ws.onmessage = (event) => {
+                handleMessage(event.data);
+            };
+
+        } catch (e) {
+            alert("Error creating WebSocket: " + e.message);
+        }
+    });
+
+    elDisconnect.addEventListener('click', () => {
+        if (ws) ws.close();
+    });
+
+    elSend.addEventListener('click', () => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const content = elSubMsg.value.trim();
+        try {
+            // Verify JSON validity before sending
+            const obj = JSON.parse(content);
+            ws.send(JSON.stringify(obj));
+            // Log outgoing subscription
+            logMessage('system', 'SENT: ' + JSON.stringify(obj));
+        } catch (e) {
+            alert("Invalid JSON format");
+        }
+    });
+
+    function updateStatus(state) {
+        elStatusDot.className = 'status-indicator';
+        elStatusText.innerText = state.charAt(0).toUpperCase() + state.slice(1);
+        
+        if (state === 'connected') {
+            elStatusDot.classList.add('connected');
+            elConnect.disabled = true;
+            elDisconnect.disabled = false;
+            elSend.disabled = false;
+            elUrl.disabled = true;
+            
+            // Disable Auth Config
+            elConfigApiKey.disabled = true;
+            elConfigSecretKey.disabled = true;
+            elAuthKeyType.disabled = true;
+            elAuthTimestamp.disabled = true;
+            elBtnRefreshTs.disabled = true;
+
+        } else if (state === 'disconnected') {
+            elConnect.disabled = false;
+            elDisconnect.disabled = true;
+            elSend.disabled = true;
+            elUrl.disabled = false;
+
+            // Enable Auth Config
+            elConfigApiKey.disabled = false;
+            elConfigSecretKey.disabled = false;
+            elAuthKeyType.disabled = false;
+            elAuthTimestamp.disabled = false;
+            elBtnRefreshTs.disabled = false;
+
+        } else if (state === 'error') {
+            elStatusDot.classList.add('error');
+        }
+    }
+
+    // --- Ping / Pong Logic ---
+
+    // Removed active ping loop. Now we respond to server ping.
+    function sendPong(serverPingTime) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const pongMsg = { pong: serverPingTime };
+        ws.send(JSON.stringify(pongMsg));
+        elPingLog.innerText = `Last Pong: ${new Date().toLocaleTimeString()} (for ${serverPingTime})`;
+    }
+
+    // --- Message Handling ---
+
+    function handleMessage(data) {
+        try {
+            const msg = JSON.parse(data);
+
+            if (msg.ping) {
+                sendPong(msg.ping);
+                return;
+            }
+
+            if (msg.pong) {
+                elPingLog.innerText = `Last Pong: ${new Date().toLocaleTimeString()} (for ${msg.pong})`;
+                return;
+            }
+
+            // 2. Identify Topic
+            // Priority: msg.topic > msg.arg?.topic > 'system'
+            let topic = 'system';
+            
+            if (msg.topic) {
+                topic = msg.topic;
+            } else if (msg.arg && msg.arg.topic) {
+                // Some formats return request params in 'arg'
+                topic = msg.arg.topic;
+            } else if (msg.event === 'sub' || msg.event === 'error') {
+                // Responses to subscription often echo the topic or id, 
+                // but if generic, put in system.
+                // If it has an ID that matches a topic pattern, we could try to map it, 
+                // but let's stick to explicit 'topic' fields for the requirement.
+                if (msg.topic) topic = msg.topic;
+            }
+
+            // 3. Display
+            logMessage(topic, JSON.stringify(msg));
+
+        } catch (e) {
+            // Not JSON? Log as text string in system
+            logMessage('system', data);
+        }
+    }
+
+    // --- UI Display Logic ---
+
+    function logMessage(topic, content) {
+        // Ensure topic ID is safe for HTML
+        const safeTopicId = topic.replace(/[^a-zA-Z0-9-_]/g, '-');
+        
+        let contentDiv = document.getElementById(`logs-${safeTopicId}`);
+        
+        // Create Topic Card if not exists
+        if (!contentDiv) {
+            createTopicCard(topic, safeTopicId);
+            contentDiv = document.getElementById(`logs-${safeTopicId}`);
+        }
+
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'log-time';
+        timeSpan.innerText = `[${new Date().toLocaleTimeString()}]`;
+        
+        const dataSpan = document.createElement('span');
+        dataSpan.className = 'log-data';
+        dataSpan.innerText = content;
+        dataSpan.title = "View details";
+        dataSpan.onclick = function() {
+            openDetailModal({ topic, time: timeSpan.innerText, raw: content });
+        };
+
+        entry.appendChild(timeSpan);
+        entry.appendChild(dataSpan);
+        
+        // Prepend to show newest at top (reverse chronological order)
+        contentDiv.prepend(entry);
+        
+        // Ensure view is at top
+        contentDiv.scrollTop = 0;
+    }
+
+    function createTopicCard(topicName, safeId) {
+        const card = document.createElement('div');
+        card.className = 'topic-card';
+        card.id = `card-${safeId}`;
+        
+        card.innerHTML = `
+            <div class="topic-header">
+                <span>Topic: ${topicName}</span>
+                <button class="clear-btn" onclick="clearTopic('${safeId}')">Clear</button>
+            </div>
+            <div class="topic-content" id="logs-${safeId}"></div>
+        `;
+        
+        // Insert after system card or append to container
+        elContainer.appendChild(card);
+    }
+
+    window.clearTopic = function(safeId) {
+        const el = document.getElementById(`logs-${safeId}`);
+        if (el) el.innerHTML = '';
+    };
+
+    window.clearAll = function() {
+        // Clear all content divs
+        document.querySelectorAll('.topic-content').forEach(el => el.innerHTML = '');
+        // Optionally remove topic cards except system?
+        // Let's keep the cards, just clear content.
+    };
+
+</script>
+</body>
+</html>
